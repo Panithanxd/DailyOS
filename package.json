@@ -1,0 +1,14 @@
+{
+  "name": "commuter-hub",
+  "version": "2.0.0",
+  "description": "Commuter Hub - Smart Bangkok Daily Life Assistant",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}

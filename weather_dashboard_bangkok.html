@@ -1,0 +1,2890 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commuter Hub - สภาพอากาศและการเดินทาง</title>
+  
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@200;300;400;500;600&family=Outfit:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  
+  <!-- Lucide Icons via CDN (with fallback) -->
+  <script>
+    // Safe lucide wrapper - prevents crash if CDN fails
+    window._lucideReady = false;
+    function safeCreateIcons() {
+      try { if (typeof lucide !== 'undefined') { safeCreateIcons(); window._lucideReady = true; } } catch(e) {}
+    }
+  </script>
+  <script src="https://unpkg.com/lucide@latest" onload="safeCreateIcons()" onerror="console.warn('Lucide CDN failed, icons may not render')"></script>
+
+  <style>
+    :root {
+      --bg: #030712;
+      --glass-bg: rgba(17, 24, 39, 0.4);
+      --glass-bg-hover: rgba(31, 41, 55, 0.6);
+      --glass-surface: rgba(255, 255, 255, 0.03);
+      --glass-surface2: rgba(255, 255, 255, 0.06);
+      --border: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(0, 242, 254, 0.3);
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --muted2: #4b5563;
+      
+      /* Colors */
+      --cyan: #00f2fe;
+      --blue: #4facfe;
+      --green: #10b981;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --purple: #8b5cf6;
+      
+      --gradient-primary: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+      --gradient-accent: linear-gradient(135deg, #ff9f43 0%, #ff5252 100%);
+      --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Prompt', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      overflow-x: hidden;
+    }
+
+    /* Grain Overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.7;
+    }
+
+    /* Drifting Aurora Background Blobs */
+    .aurora {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 0;
+    }
+    .aurora-blob {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.12;
+      mix-blend-mode: screen;
+    }
+    .aurora-blob:nth-child(1) {
+      width: 700px;
+      height: 500px;
+      background: var(--cyan);
+      top: -150px;
+      left: -150px;
+      animation: drift1 25s ease-in-out infinite alternate;
+    }
+    .aurora-blob:nth-child(2) {
+      width: 600px;
+      height: 450px;
+      background: var(--purple);
+      bottom: -100px;
+      right: -100px;
+      animation: drift2 30s ease-in-out infinite alternate;
+    }
+    .aurora-blob:nth-child(3) {
+      width: 450px;
+      height: 450px;
+      background: var(--blue);
+      top: 30%;
+      left: 60%;
+      animation: drift3 22s ease-in-out infinite alternate;
+    }
+    @keyframes drift1 { to { transform: translate(120px, 80px) rotate(30deg); } }
+    @keyframes drift2 { to { transform: translate(-100px, -60px) rotate(-20deg); } }
+    @keyframes drift3 { to { transform: translate(-90px, 80px) rotate(45deg); } }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--border-accent);
+    }
+
+    /* MAIN APP CONTAINER */
+    .app-container {
+      display: flex;
+      width: 100%;
+      z-index: 10;
+      position: relative;
+    }
+
+    /* SIDEBAR NAV */
+    .sidebar {
+      width: 280px;
+      background: rgba(10, 15, 30, 0.7);
+      backdrop-filter: blur(30px);
+      border-right: 1px solid var(--border);
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+      flex-shrink: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 40px;
+    }
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      background: var(--gradient-primary);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+    }
+    .brand-logo i {
+      color: #030712;
+      stroke-width: 2.5;
+    }
+    .brand-title h1 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      background: var(--gradient-primary);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .brand-title p {
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .nav-links {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-grow: 1;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 18px;
+      color: var(--muted);
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 400;
+      transition: var(--transition);
+      border: 1px solid transparent;
+      user-select: none;
+    }
+    .nav-item i {
+      width: 20px;
+      height: 20px;
+      transition: var(--transition);
+    }
+    .nav-item:hover {
+      color: var(--text);
+      background: var(--glass-surface);
+      border-color: rgba(255, 255, 255, 0.05);
+    }
+    .nav-item.active {
+      color: #030712;
+      background: var(--gradient-primary);
+      font-weight: 500;
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+    }
+    .nav-item.active i {
+      stroke-width: 2.5;
+    }
+
+    .sidebar-footer {
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+      font-size: 0.7rem;
+      color: var(--muted2);
+      font-family: 'JetBrains Mono', monospace;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    /* CONTENT WRAPPER */
+    .main-content {
+      flex-grow: 1;
+      padding: 40px;
+      overflow-y: auto;
+      max-width: 1300px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* TOP BAR STATS */
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .clock-widget {
+      text-align: right;
+    }
+    .time-display {
+      font-family: 'Outfit', 'JetBrains Mono', monospace;
+      font-size: 2.2rem;
+      font-weight: 300;
+      color: var(--cyan);
+      letter-spacing: 1px;
+      text-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+    }
+    .date-display {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+
+    /* GENERAL CARD GLASSMORPHISM */
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(24px) saturate(140%);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      position: relative;
+      overflow: hidden;
+      transition: var(--transition);
+    }
+    .glass-card:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+    .glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(0, 242, 254, 0.3), transparent);
+      pointer-events: none;
+    }
+
+    /* ACTIVE TAB TRANSITIONS */
+    .tab-content {
+      display: none;
+      animation: fadeSlideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    @keyframes fadeSlideUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* =====================================
+       TAB 1: WEATHER DASHBOARD
+       ===================================== */
+    .search-box-container {
+      position: relative;
+      margin-bottom: 24px;
+      max-width: 500px;
+    }
+    .search-input-wrap {
+      display: flex;
+      align-items: center;
+      background: var(--glass-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 16px;
+      transition: var(--transition);
+    }
+    .search-input-wrap:focus-within {
+      border-color: var(--cyan);
+      box-shadow: 0 0 15px rgba(0, 242, 254, 0.15);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .search-input-wrap i {
+      color: var(--muted);
+      margin-right: 12px;
+      width: 18px;
+      height: 18px;
+    }
+    .search-input-wrap input {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+      width: 100%;
+      outline: none;
+    }
+    .search-input-wrap input::placeholder {
+      color: var(--muted2);
+    }
+    .suggestions-list {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      right: 0;
+      background: rgba(13, 20, 35, 0.95);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      z-index: 1000;
+      max-height: 250px;
+      overflow-y: auto;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      display: none;
+    }
+    .suggestion-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: var(--transition);
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+    }
+    .suggestion-item:last-child {
+      border-bottom: none;
+    }
+    .suggestion-item:hover {
+      background: var(--glass-bg-hover);
+      color: var(--cyan);
+    }
+
+    /* Hero Weather Grid */
+    .weather-grid {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+    .weather-main-info {
+      display: flex;
+      align-items: center;
+      gap: 40px;
+    }
+    .weather-big-icon {
+      font-size: 5.5rem;
+      line-height: 1;
+      filter: drop-shadow(0 0 25px rgba(0, 242, 254, 0.4));
+      animation: float 4s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-8px); }
+    }
+    .weather-main-temp {
+      font-family: 'Outfit', sans-serif;
+      font-size: 5.8rem;
+      font-weight: 200;
+      line-height: 1;
+      letter-spacing: -2px;
+      position: relative;
+    }
+    .weather-main-temp sup {
+      font-size: 1.8rem;
+      font-weight: 300;
+      color: var(--muted);
+      position: absolute;
+      top: 10px;
+    }
+    .weather-main-desc {
+      font-size: 1.1rem;
+      font-weight: 400;
+      color: var(--cyan);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-top: 6px;
+    }
+    .weather-feels-like {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+      margin-top: 4px;
+    }
+
+    /* Tiles Grid */
+    .weather-tiles {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .weather-tile {
+      background: var(--glass-surface2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .weather-tile-label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 6px;
+    }
+    .weather-tile-value {
+      font-size: 1.25rem;
+      font-weight: 500;
+      color: var(--text);
+      font-family: 'Outfit', sans-serif;
+    }
+    .weather-tile-value span {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-weight: 300;
+    }
+
+    /* Hourly & Daily Sections */
+    .weather-strip-title {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 2.5px;
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 12px;
+      margin-top: 28px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .weather-strip-title i {
+      width: 14px;
+      height: 14px;
+    }
+    .hourly-container {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      margin-bottom: 24px;
+      scrollbar-width: thin;
+    }
+    .hourly-item {
+      flex: 0 0 80px;
+      background: var(--glass-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 10px;
+      text-align: center;
+      transition: var(--transition);
+    }
+    .hourly-item:hover {
+      border-color: var(--cyan);
+      transform: translateY(-3px);
+      background: rgba(0, 242, 254, 0.05);
+    }
+    .hourly-item.now {
+      border-color: var(--border-accent);
+      background: rgba(0, 242, 254, 0.08);
+    }
+    .hourly-time {
+      font-size: 0.65rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .hourly-icon {
+      font-size: 1.6rem;
+      margin: 8px 0;
+    }
+    .hourly-temp {
+      font-size: 0.95rem;
+      font-weight: 500;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    /* 7 Day Forecast List */
+    .daily-forecast-container {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 24px;
+      margin-top: 16px;
+    }
+    .daily-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .daily-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--glass-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 20px;
+      transition: var(--transition);
+    }
+    .daily-item:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+      background: var(--glass-surface2);
+    }
+    .daily-date {
+      font-size: 0.85rem;
+      width: 100px;
+      color: var(--text);
+    }
+    .daily-icon-desc {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-grow: 1;
+      justify-content: center;
+    }
+    .daily-icon {
+      font-size: 1.5rem;
+    }
+    .daily-rain-chance {
+      font-size: 0.7rem;
+      color: var(--cyan);
+      font-family: 'JetBrains Mono', monospace;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .daily-temps {
+      display: flex;
+      gap: 14px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.9rem;
+      width: 80px;
+      justify-content: flex-end;
+    }
+    .daily-temp-max {
+      font-weight: 500;
+      color: var(--text);
+    }
+    .daily-temp-min {
+      color: var(--muted);
+    }
+
+    /* Sub cards for sun & air */
+    .weather-sub-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .solar-track-box {
+      margin-top: 14px;
+    }
+    .solar-track-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-family: 'JetBrains Mono', monospace;
+      margin-bottom: 10px;
+    }
+    .solar-track-line {
+      position: relative;
+      height: 4px;
+      background: var(--muted2);
+      border-radius: 99px;
+    }
+    .solar-track-fill {
+      height: 100%;
+      border-radius: 99px;
+      background: linear-gradient(90deg, #ff9f43, #ffd740);
+    }
+    .solar-sun-dot {
+      position: absolute;
+      top: 50%;
+      width: 18px;
+      height: 18px;
+      background: #ffd740;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 12px rgba(253, 215, 64, 0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+    }
+    .solar-stats {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 18px;
+    }
+    .solar-stat-item {
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .solar-stat-item b {
+      display: block;
+      color: var(--text);
+      font-size: 0.9rem;
+      margin-top: 3px;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    /* AQI Subcard */
+    .aqi-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .aqi-number {
+      font-size: 3rem;
+      font-weight: 200;
+      font-family: 'Outfit', sans-serif;
+      line-height: 1;
+    }
+    .aqi-label {
+      font-size: 0.8rem;
+      font-weight: 500;
+      margin-top: 4px;
+    }
+    .aqi-scale-bar {
+      display: flex;
+      height: 4px;
+      border-radius: 99px;
+      overflow: hidden;
+      margin-top: 16px;
+      gap: 2px;
+    }
+    .aqi-scale-segment {
+      flex: 1;
+      opacity: 0.25;
+      transition: var(--transition);
+    }
+    .aqi-scale-segment.active {
+      opacity: 1;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    /* =====================================
+       TAB 2: TRAFFIC & ROUTING MAP EXPLORER
+       ===================================== */
+    .map-dashboard-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 24px;
+      height: calc(100vh - 180px);
+      min-height: 500px;
+    }
+    .map-outer {
+      position: relative;
+      border-radius: 20px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    #trafficMap {
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      touch-action: pan-x pan-y;
+    }
+    .map-overlay-card {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 100;
+      width: 320px;
+      background: rgba(10, 15, 30, 0.85);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    .map-overlay-card h3 {
+      font-size: 0.9rem;
+      font-weight: 500;
+      margin-bottom: 12px;
+      color: var(--cyan);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .map-overlay-card h3 i {
+      width: 16px;
+      height: 16px;
+    }
+    .route-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .route-field {
+      display: flex;
+      align-items: center;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+    }
+    .route-field i {
+      width: 16px;
+      height: 16px;
+      color: var(--muted);
+      margin-right: 8px;
+    }
+    .route-field span {
+      font-size: 0.8rem;
+      color: var(--text);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+      width: 100%;
+    }
+    .route-field span.empty {
+      color: var(--muted2);
+    }
+    .route-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px;
+      font-size: 0.8rem;
+      font-family: inherit;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-weight: 500;
+    }
+    .btn-primary {
+      background: var(--gradient-primary);
+      color: #030712;
+      border: none;
+    }
+    .btn-primary:hover {
+      box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.05);
+      color: var(--text);
+    }
+    .btn-secondary:hover {
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.2);
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Travel metrics panel */
+    .travel-stats {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      display: none;
+    }
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      margin-bottom: 8px;
+      color: var(--muted);
+    }
+    .stat-row b {
+      color: var(--text);
+      font-family: 'Outfit', sans-serif;
+    }
+    .traffic-status-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 0.65rem;
+      font-weight: 500;
+    }
+    .traffic-pill-green { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .traffic-pill-yellow { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .traffic-pill-red { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+    /* CCTV Feeds Sidebar Tab */
+    .cctv-sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    .cctv-card {
+      background: var(--glass-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .cctv-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .cctv-title {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .cctv-live-dot {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.6rem;
+      color: var(--red);
+      font-family: 'JetBrains Mono', monospace;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    .cctv-live-dot::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--red);
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+    .cctv-screen {
+      position: relative;
+      aspect-ratio: 16/9;
+      background: #090e1a;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.03);
+    }
+    .cctv-canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.85;
+    }
+    .cctv-overlay-text {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(0,0,0,0.6);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.55rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: #00f2fe;
+    }
+
+    /* =====================================
+       TAB 3: BTS & MRT TRANSIT HUB
+       ===================================== */
+    .transit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.3fr;
+      gap: 24px;
+    }
+    .transit-status-board {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .transit-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--glass-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .transit-line-info {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .transit-color-bar {
+      width: 6px;
+      height: 24px;
+      border-radius: 3px;
+    }
+    .transit-name {
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    .transit-desc {
+      font-size: 0.65rem;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+    .transit-status {
+      font-size: 0.75rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .transit-status.normal { color: var(--green); }
+    .transit-status.delay { color: var(--yellow); }
+
+    /* Fare Calculator styling */
+    .fare-calculator-box {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .fare-inputs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+    }
+    .input-field-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .input-field-wrap label {
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .input-field-wrap select {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+      padding: 12px 14px;
+      border-radius: 12px;
+      outline: none;
+      width: 100%;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    .input-field-wrap select:focus {
+      border-color: var(--cyan);
+      background: rgba(255,255,255,0.08);
+    }
+    .input-field-wrap select option {
+      background: #090e1a;
+      color: var(--text);
+    }
+    .fare-result-display {
+      margin-top: 12px;
+      background: rgba(255,255,255,0.02);
+      border: 1px dashed var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .fare-main-val {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .fare-val-label {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .fare-val-number {
+      font-size: 2.2rem;
+      font-weight: 600;
+      color: var(--cyan);
+      font-family: 'Outfit', sans-serif;
+    }
+    .fare-val-number span {
+      font-size: 1rem;
+      color: var(--muted);
+      font-weight: 300;
+      margin-left: 6px;
+    }
+    .fare-route-details {
+      font-size: 0.75rem;
+      color: var(--muted);
+      line-height: 1.5;
+      padding: 10px 0 0;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .fare-interchange-warning {
+      background: rgba(245, 158, 11, 0.1);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.7rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* =====================================
+       TAB 4: COMMUTE HELPER & NOTES
+       ===================================== */
+    .helper-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .todo-section {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .todo-input-wrap {
+      display: flex;
+      gap: 8px;
+    }
+    .todo-input-wrap input {
+      flex: 1;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+      padding: 10px 14px;
+      border-radius: 10px;
+      outline: none;
+    }
+    .todo-input-wrap input:focus {
+      border-color: var(--cyan);
+      background: rgba(255,255,255,0.06);
+    }
+    .todo-list-items {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .todo-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 16px;
+      transition: var(--transition);
+    }
+    .todo-item:hover {
+      border-color: rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+    }
+    .todo-item-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      flex-grow: 1;
+    }
+    .todo-checkbox {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--muted);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: var(--transition);
+    }
+    .todo-item.checked .todo-checkbox {
+      border-color: var(--green);
+      background: var(--green);
+    }
+    .todo-checkbox i {
+      color: #030712;
+      stroke-width: 3;
+      width: 12px;
+      height: 12px;
+      display: none;
+    }
+    .todo-item.checked .todo-checkbox i {
+      display: block;
+    }
+    .todo-text {
+      font-size: 0.85rem;
+      transition: var(--transition);
+      color: var(--text);
+    }
+    .todo-item.checked .todo-text {
+      text-decoration: line-through;
+      color: var(--muted);
+    }
+    .todo-del-btn {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      transition: var(--transition);
+      padding: 4px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .todo-del-btn:hover {
+      color: var(--red);
+      background: rgba(239, 68, 68, 0.15);
+    }
+
+    /* Notes Area */
+    .notes-section {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      height: 100%;
+    }
+    .notes-textarea {
+      flex-grow: 1;
+      width: 100%;
+      min-height: 280px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.85rem;
+      resize: none;
+      outline: none;
+      line-height: 1.6;
+      transition: var(--transition);
+    }
+    .notes-textarea:focus {
+      border-color: var(--cyan);
+      background: rgba(255,255,255,0.04);
+    }
+    .notes-status {
+      font-size: 0.7rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Loader */
+    .full-page-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 0;
+      color: var(--muted);
+      gap: 16px;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--glass-surface2);
+      border-top-color: var(--cyan);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* =====================================
+       RESPONSIVE ADAPTATIONS
+       — tablet & mobile: bottom tab layout
+       ===================================== */
+
+    /* ── Tablet + Mobile: sidebar → bottom tab bar ── */
+    @media (max-width: 1100px) {
+      /* Collapse all multi-column grids */
+      .weather-grid,
+      .daily-forecast-container,
+      .transit-grid,
+      .helper-grid {
+        grid-template-columns: 1fr;
+      }
+      .map-dashboard-grid {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      #trafficMap { height: 420px; }
+
+      /* Switch sidebar to bottom nav bar */
+      body { flex-direction: column; }
+      .app-container { flex-direction: column; }
+
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: fixed;
+        bottom: 0; left: 0; right: 0;
+        top: auto !important; /* Overrides desktop top:0 sticky layout */
+        z-index: 1000;
+        flex-direction: row;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        padding: 10px 8px env(safe-area-inset-bottom, 10px);
+        justify-content: space-around;
+        background: rgba(10, 15, 30, 0.97);
+        backdrop-filter: blur(24px);
+        height: auto !important;
+      }
+      /* Ensure the inner wrapper div of the sidebar occupies full horizontal width */
+      .sidebar > div {
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: center;
+      }
+      .brand { display: none; }
+      .sidebar-footer { display: none; }
+
+      .nav-links {
+        flex-direction: row;
+        width: 100%;
+        justify-content: space-around;
+        gap: 4px;
+      }
+      .nav-item {
+        padding: 10px 12px 6px;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        font-size: 0.7rem;
+        flex: 1;
+        text-align: center;
+        border-radius: 12px;
+        min-height: 56px;
+      }
+      .nav-item i { width: 22px; height: 22px; }
+      .nav-item span { display: block; }
+
+      /* Main content padding for bottom nav */
+      .main-content {
+        padding: 28px 28px calc(80px + env(safe-area-inset-bottom, 0px));
+        max-width: 100%;
+      }
+
+      /* Topbar compact */
+      .topbar { margin-bottom: 24px; }
+
+      /* Map overlay card below map on tablet */
+      .map-outer { display: flex; flex-direction: column; height: auto; border: none; }
+      .map-overlay-card { position: static; width: 100%; margin-top: 16px; box-shadow: none; background: var(--glass-bg); border-radius: 16px; }
+    }
+
+    /* ── Small phones (keep extra compact on 390px and below) ── */
+    @media (max-width: 768px) {
+      body {
+        flex-direction: column;
+      }
+      .app-container { flex-direction: column; }
+
+      /* ── Bottom Tab Bar ── */
+      .sidebar {
+        width: 100%;
+        height: auto;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        top: auto !important; /* Overrides desktop top:0 sticky layout */
+        z-index: 1000;
+        flex-direction: row;
+        border-right: none;
+        border-top: 1px solid var(--border);
+        padding: 8px 4px env(safe-area-inset-bottom, 8px);
+        justify-content: space-around;
+        background: rgba(10, 15, 30, 0.97);
+        backdrop-filter: blur(20px);
+      }
+      .sidebar > div {
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        justify-content: space-around;
+        align-items: center;
+      }
+      .brand { display: none; }
+      .sidebar-footer { display: none; }
+      .nav-links {
+        flex-direction: row;
+        width: 100%;
+        justify-content: space-around;
+        gap: 2px;
+      }
+      .nav-item {
+        padding: 8px 6px 4px;
+        flex-direction: column;
+        align-items: center;
+        gap: 3px;
+        font-size: 0.6rem;
+        flex: 1;
+        text-align: center;
+        border-radius: 10px;
+        min-height: 54px;
+      }
+      .nav-item i {
+        width: 22px;
+        height: 22px;
+      }
+      .nav-item span { display: block; }
+
+      /* ── Main Content ── */
+      .main-content {
+        padding: 16px 14px calc(74px + env(safe-area-inset-bottom, 0px));
+      }
+
+      /* ── Topbar ── */
+      .topbar {
+        margin-bottom: 18px;
+        padding-bottom: 12px;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .topbar > div:first-child h2 {
+        font-size: 0.85rem;
+        letter-spacing: 1px;
+      }
+      .topbar > div:first-child p {
+        font-size: 0.6rem;
+      }
+      .clock-widget {
+        text-align: right;
+      }
+      .time-display { font-size: 1.6rem; }
+      .date-display { font-size: 0.6rem; }
+
+      /* ── Weather Tab ── */
+      .search-box-container {
+        max-width: 100%;
+        margin-bottom: 16px;
+      }
+      .weather-big-icon { font-size: 4rem; }
+      .weather-main-temp { font-size: 3.8rem; }
+      .weather-main-info {
+        flex-direction: row;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .weather-tiles {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+      .weather-tile { padding: 14px 12px; }
+      .weather-tile-value { font-size: 1.1rem; }
+
+      /* Hourly strip: slightly bigger items on mobile */
+      .hourly-item { flex: 0 0 72px; padding: 12px 8px; }
+
+      /* Daily forecast full-width */
+      .daily-item { padding: 12px 14px; }
+      .daily-date { width: 80px; font-size: 0.8rem; }
+
+      /* ── Glass cards padding ── */
+      .glass-card { padding: 18px 16px; }
+
+      /* ── Map Tab ── */
+      .map-outer {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        border: none;
+      }
+      #trafficMap {
+        height: 300px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+      }
+      .map-overlay-card {
+        position: static;
+        width: 100%;
+        margin-top: 16px;
+        box-shadow: none;
+        background: var(--glass-bg);
+        border-radius: 16px;
+      }
+      .cctv-sidebar { gap: 12px; }
+      .cctv-card { padding: 12px; }
+
+      /* ── Transit Tab ── */
+      .transit-line { padding: 14px 14px; }
+      .transit-name { font-size: 0.8rem; }
+
+      /* Fare calculator */
+      .fare-val-number { font-size: 1.8rem; }
+
+      /* Announcement banner word wrap */
+      #transitAnnouncement {
+        font-size: 0.78rem;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+
+      /* ── Checklist / Notes Tab ── */
+      .helper-grid { gap: 16px; }
+      .notes-textarea { min-height: 200px; }
+      .todo-input-wrap input { font-size: 16px; }
+      .todo-text { font-size: 0.82rem; }
+
+      /* ── Prevent iOS Safari auto-zoom on focus ── */
+      .search-input-wrap input,
+      #todoInput,
+      .input-field-wrap select,
+      .notes-textarea,
+      textarea,
+      input[type="text"] {
+        font-size: 16px !important;
+      }
+
+      /* ── Buttons more touch-friendly ── */
+      .btn { padding: 12px 10px; min-height: 44px; font-size: 0.82rem; }
+      .btn i { width: 16px; height: 16px; }
+
+      /* ── AQI / solar card tighter ── */
+      .aqi-number { font-size: 2.4rem; }
+      .weather-sub-cards { gap: 12px; }
+
+      /* ── Scrollable weather sections ── */
+      .hourly-container { -webkit-overflow-scrolling: touch; }
+    }
+
+    /* Extra small (iPhone SE, 375px) */
+    @media (max-width: 390px) {
+      .nav-item { font-size: 0.55rem; padding: 6px 2px 4px; }
+      .nav-item i { width: 20px; height: 20px; }
+      .time-display { font-size: 1.4rem; }
+      .weather-main-temp { font-size: 3.2rem; }
+      .weather-big-icon { font-size: 3.2rem; }
+      .topbar > div:first-child h2 { font-size: 0.78rem; }
+      .glass-card { padding: 14px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Aurora Blobs -->
+  <div class="aurora">
+    <div class="aurora-blob"></div>
+    <div class="aurora-blob"></div>
+    <div class="aurora-blob"></div>
+  </div>
+
+  <div class="app-container">
+    
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div>
+        <div class="brand">
+          <div class="brand-logo">
+            <i data-lucide="navigation"></i>
+          </div>
+          <div class="brand-title">
+            <h1>Commuter Hub</h1>
+            <p>BKK Daily Guide</p>
+          </div>
+        </div>
+
+        <nav class="nav-links">
+          <div class="nav-item active" onclick="switchTab('weather')" id="nav-weather">
+            <i data-lucide="cloud-sun"></i>
+            <span>อากาศ</span>
+          </div>
+         
+          <div class="nav-item" onclick="switchTab('transit')" id="nav-transit">
+            <i data-lucide="train-front"></i>
+            <span>BTS/MRT</span>
+          </div>
+          <div class="nav-item" onclick="switchTab('helper')" id="nav-helper">
+            <i data-lucide="list-todo"></i>
+            <span>บันทึก</span>
+          </div>
+        </nav>
+      </div>
+
+      <div class="sidebar-footer">
+        <span>COMMUTER HUB V2.0</span>
+        <span>AUTOMATED UPDATES</span>
+      </div>
+    </aside>
+
+    <!-- MAIN DISPLAY CONTENT -->
+    <main class="main-content">
+      
+      <!-- TOPBAR HEADER -->
+      <div class="topbar">
+        <div>
+          <h2 style="font-weight: 300; font-size: 1.25rem; letter-spacing: 2px; text-transform: uppercase;" id="headerTitle">สภาพอากาศและการเตรียมตัว</h2>
+          <p style="font-size: 0.65rem; color: var(--muted); margin-top: 4px; font-family: 'JetBrains Mono', monospace;" id="headerSub">BANGKOK METROPOLIS · TH</p>
+        </div>
+        <div class="clock-widget">
+          <div class="time-display" id="mainTime">--:--:--</div>
+          <div class="date-display" id="mainDate">วันพฤหัสบดีที่ 21 พฤษภาคม 2569</div>
+        </div>
+      </div>
+
+      <!-- =====================================
+           TAB 1: WEATHER SYSTEM
+           ===================================== -->
+      <div class="tab-content active" id="tab-weather">
+        <!-- Location Search Bar -->
+        <div class="search-box-container">
+          <div class="search-input-wrap">
+            <i data-lucide="search"></i>
+            <input type="text" id="weatherSearchInput" placeholder="ค้นหาชื่อเมือง อำเภอ หรือจังหวัด..." autocomplete="off">
+          </div>
+          <div class="suggestions-list" id="weatherSuggestions"></div>
+        </div>
+
+        <div id="weatherDashboardContent">
+          <!-- Dynamically populated weather view -->
+          <div class="full-page-loader">
+            <div class="spinner"></div>
+            <span>กำลังดึงข้อมูลสภาพอากาศและมลพิษทางอากาศ...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- =====================================
+           TAB 2: TRAFFIC & MAP PLANNER
+           ===================================== */ -->
+      <div class="tab-content" id="tab-traffic">
+        <div class="map-dashboard-grid">
+          <!-- Interactive Map panel -->
+          <div class="map-outer">
+            <div id="trafficMap"></div>
+            
+            <!-- Floating route info card -->
+            <div class="map-overlay-card">
+              <h3><i data-lucide="route"></i> วางแผนการเดินทาง</h3>
+              <p style="font-size: 0.65rem; color: var(--muted); margin-bottom: 12px; line-height: 1.4;">
+                *คลิกเลือกจุดสองจุดบนแผนที่ เพื่อปักหมุดจุดเริ่มต้นและปลายทางในการนำทาง
+              </p>
+              
+              <div class="route-input-group">
+                <div class="route-field">
+                  <i data-lucide="map-pin" style="color: var(--cyan);"></i>
+                  <span id="routeStartName" class="empty">จุดเริ่มต้น (คลิกเลือกในแผนที่)</span>
+                </div>
+                <div class="route-field">
+                  <i data-lucide="flag" style="color: var(--red);"></i>
+                  <span id="routeEndName" class="empty">จุดปลายทาง (คลิกเลือกในแผนที่)</span>
+                </div>
+              </div>
+
+              <div class="route-actions">
+                <button class="btn btn-secondary" onclick="clearRoute()"><i data-lucide="rotate-ccw"></i> รีเซ็ต</button>
+                <button class="btn btn-primary" id="btnCalcRoute" onclick="calculateCommuteRoute()" disabled><i data-lucide="arrow-right"></i> คำนวณเส้นทาง</button>
+              </div>
+
+              <!-- Route details panel -->
+              <div class="travel-stats" id="commuteDetailsBox">
+                <div class="stat-row">
+                  <span>ระยะทางขับขี่:</span>
+                  <b id="commuteDist">-- กม.</b>
+                </div>
+                <div class="stat-row">
+                  <span>เวลาเดินทางเฉลี่ย:</span>
+                  <b id="commuteTime">-- นาที</b>
+                </div>
+                <div class="stat-row">
+                  <span>ความหนาแน่นจราจร:</span>
+                  <span id="trafficCongestionPill" class="traffic-status-pill traffic-pill-green">โหลดข้อมูล...</span>
+                </div>
+                <div class="stat-row" style="font-weight: 500; border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 8px;">
+                  <span>เวลาเดินทางจริง (คาดการณ์):</span>
+                  <b id="commuteRealTime" style="color: var(--cyan);">-- นาที</b>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CCTV monitor and traffic alert feeds -->
+          <div class="cctv-sidebar">
+            <h3 style="font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; font-family: 'JetBrains Mono', monospace; display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="video" style="width: 16px; height: 16px;"></i> Live CCTV Traffic
+            </h3>
+
+            <!-- CCTV Card 1 -->
+            <div class="cctv-card">
+              <div class="cctv-header">
+                <span class="cctv-title">แยกอโศกมนตรี (Asoke)</span>
+                <div class="cctv-live-dot">Live</div>
+              </div>
+              <div class="cctv-screen">
+                <canvas class="cctv-canvas" id="cctv1"></canvas>
+                <div class="cctv-overlay-text">CAM-01 / BKK-CENTRAL</div>
+              </div>
+            </div>
+
+            <!-- CCTV Card 2 -->
+            <div class="cctv-card">
+              <div class="cctv-header">
+                <span class="cctv-title">แยกลาดพร้าว (Ladprao)</span>
+                <div class="cctv-live-dot">Live</div>
+              </div>
+              <div class="cctv-screen">
+                <canvas class="cctv-canvas" id="cctv2"></canvas>
+                <div class="cctv-overlay-text">CAM-02 / BKK-NORTH</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- =====================================
+           TAB 3: BTS & MRT TRANSIT BOARD
+           ===================================== -->
+      <div class="tab-content" id="tab-transit">
+        <div class="transit-grid">
+          
+          <!-- Route status dashboard -->
+          <div class="transit-status-board">
+            <h3 style="font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; font-family: 'JetBrains Mono', monospace; margin-bottom: 12px;">
+              สถานะการให้บริการรถไฟฟ้าจริง
+            </h3>
+
+            <div class="transit-line">
+              <div class="transit-line-info">
+                <div class="transit-color-bar" style="background-color: #15803d;"></div>
+                <div>
+                  <div class="transit-name">BTS Sukhumvit Line</div>
+                  <div class="transit-desc">สายสุขุมวิท (คูคต - เคหะฯ)</div>
+                </div>
+              </div>
+              <div class="transit-status normal" id="bts_sukhumvit_status">
+                <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> ปกติ
+              </div>
+            </div>
+
+            <div class="transit-line">
+              <div class="transit-line-info">
+                <div class="transit-color-bar" style="background-color: #047857;"></div>
+                <div>
+                  <div class="transit-name">BTS Silom Line</div>
+                  <div class="transit-desc">สายสีลม (สนามกีฬาฯ - บางหว้า)</div>
+                </div>
+              </div>
+              <div class="transit-status normal" id="bts_silom_status">
+                <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> ปกติ
+              </div>
+            </div>
+
+            <div class="transit-line">
+              <div class="transit-line-info">
+                <div class="transit-color-bar" style="background-color: #1d4ed8;"></div>
+                <div>
+                  <div class="transit-name">MRT Blue Line</div>
+                  <div class="transit-desc">สายสีน้ำเงิน (หลักสอง - ท่าพระ)</div>
+                </div>
+              </div>
+              <div class="transit-status normal" id="mrt_blue_status">
+                <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> ปกติ
+              </div>
+            </div>
+
+            <div class="transit-line">
+              <div class="transit-line-info">
+                <div class="transit-color-bar" style="background-color: #6d28d9;"></div>
+                <div>
+                  <div class="transit-name">MRT Purple Line</div>
+                  <div class="transit-desc">สายสีม่วง (คลองบางไผ่ - เตาปูน)</div>
+                </div>
+              </div>
+              <div class="transit-status normal" id="mrt_purple_status">
+                <i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> ปกติ
+              </div>
+            </div>
+
+            <!-- Board Announcement -->
+            <div class="glass-card" style="padding: 20px; border-color: rgba(0, 242, 254, 0.15); background: rgba(0, 242, 254, 0.02); margin-top: 12px;">
+              <h4 style="font-size: 0.8rem; color: var(--cyan); display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                <i data-lucide="bell" style="width: 16px; height: 16px;"></i> ข้อมูลประชาสัมพันธ์และข่าวสาร
+              </h4>
+              <p id="transitAnnouncement" style="font-size: 0.75rem; color: var(--muted); line-height: 1.6;">
+                ขณะนี้ระบบรถไฟฟ้าขนส่งมวลชนในเขตกรุงเทพมหานครและปริมณฑลให้บริการเป็นปกติในทุกเส้นทาง ไม่มีรายงานการขัดข้องหรือความล่าช้าสะสม
+              </p>
+            </div>
+          </div>
+
+          <!-- Fare & Interchange Calculator -->
+          <div class="glass-card fare-calculator-box">
+            <h3 style="font-size: 0.95rem; font-weight: 500; color: var(--cyan); display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+              <i data-lucide="calculator"></i> คำนวณค่าโดยสารรถไฟฟ้า BTS / MRT
+            </h3>
+            
+            <div class="fare-inputs">
+              <div class="input-field-wrap">
+                <label>เลือกโครงข่ายรถไฟฟ้า</label>
+                <select id="transitSystemSelect" onchange="populateStations()">
+                  <option value="bts_green">BTS SkyTrain (สายสีเขียว ทั้งระบบ)</option>
+                  <option value="mrt_all">MRT Subway (สายสีน้ำเงิน & สีม่วง)</option>
+                </select>
+              </div>
+
+              <div class="input-field-wrap">
+                <label>ประเภทผู้โดยสาร</label>
+                <select id="passengerTypeSelect" onchange="calculateFare()">
+                  <option value="adult">บุคคลทั่วไป (Adult)</option>
+                  <option value="student">นักเรียน/นักศึกษา (Student - ลด 30% BTS / 10% MRT)</option>
+                  <option value="senior">ผู้สูงอายุ 60+ (Senior - ลด 50%)</option>
+                </select>
+              </div>
+
+              <div class="input-field-wrap">
+                <label>สถานีต้นทาง (Origin)</label>
+                <select id="stationOriginSelect" onchange="calculateFare()">
+                  <!-- Dynamically Populated -->
+                </select>
+              </div>
+
+              <div class="input-field-wrap">
+                <label>สถานีปลายทาง (Destination)</label>
+                <select id="stationDestSelect" onchange="calculateFare()">
+                  <!-- Dynamically Populated -->
+                </select>
+              </div>
+            </div>
+
+            <!-- Dynamic Result Card -->
+            <div class="fare-result-display" id="fareResultCard">
+              <div class="fare-main-val">
+                <span class="fare-val-label">ค่าบริการทั้งหมด:</span>
+                <div class="fare-val-number" id="farePriceVal">-- <span>บาท</span></div>
+              </div>
+              <div class="fare-route-details" id="fareRouteSummary">
+                เส้นทาง: -- สถานี | ระยะเวลาเฉลี่ย -- นาที
+              </div>
+              <div class="fare-interchange-warning" id="interchangeTipsBox" style="display: none;">
+                <i data-lucide="info" style="width: 14px; height: 14px; flex-shrink:0;"></i>
+                <span id="interchangeTipsText">คำแนะนำทางเลือกในการต่อรถ</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- =====================================
+           TAB 4: COMMUTE NOTE HELPER & CHECKLIST
+           ===================================== -->
+      <div class="tab-content" id="tab-helper">
+        <div class="helper-grid">
+          
+          <!-- Commute Packing Checklist -->
+          <div class="glass-card todo-section">
+            <h3 style="font-size: 0.95rem; font-weight: 500; color: var(--cyan); display: flex; align-items: center; gap: 8px;">
+              <i data-lucide="check-square"></i> เช็คลิสต์เตรียมพร้อมเดินทางประจำวัน
+            </h3>
+            
+            <div class="todo-input-wrap">
+              <input type="text" id="todoInput" placeholder="เพิ่มเช็คลิสต์สิ่งของหรือภารกิจเดินทาง..." onkeypress="handleTodoKeypress(event)">
+              <button class="btn btn-primary" style="flex: 0 0 50px; padding: 0;" onclick="addTodo()"><i data-lucide="plus"></i></button>
+            </div>
+
+            <div class="todo-list-items" id="todoList">
+              <!-- Dynamically populated from localStorage -->
+            </div>
+          </div>
+
+          <!-- Quick Notes / Memo Pad -->
+          <div class="glass-card" style="display: flex; flex-direction: column;">
+            <div class="notes-section">
+              <h3 style="font-size: 0.95rem; font-weight: 500; color: var(--cyan); display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                <i data-lucide="edit-3"></i> บันทึกช่วยจำการเดินทาง (Commute Note)
+              </h3>
+              <p style="font-size: 0.65rem; color: var(--muted); margin-bottom: 8px;">จดบันทึก แผนที่ทางออก ข้อมูลเวลาเที่ยวรถ หรือข้อมูลสำคัญอื่นๆ</p>
+              
+              <textarea class="notes-textarea" id="commuteMemoPad" oninput="saveMemo()" placeholder="พิมพ์โน้ตส่วนตัวเพื่อจดรายละเอียด เช่น เลขขบวน บานประตูทางออก เวลาเที่ยวรถรอบดึก หรือสีกระเป๋าเป้..."></textarea>
+              
+              <div class="notes-status" id="memoSaveStatus">
+                <i data-lucide="save" style="width: 14px; height: 14px;"></i>
+                <span>บันทึกข้อมูลแบบออฟไลน์เรียบร้อย</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Leaflet Map JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <script>
+    // Global Configuration
+    const WC = {
+      0: ["☀️", "CLEAR SKY", "ท้องฟ้าแจ่มใส"],
+      1: ["🌤", "MAINLY CLEAR", "ท้องฟ้าโปร่ง"],
+      2: ["⛅", "PARTLY CLOUDY", "มีเมฆบางส่วน"],
+      3: ["☁️", "OVERCAST", "เมฆครึ้ม"],
+      45: ["🌫", "FOGGY", "หมอกลงจัด"],
+      48: ["🌫", "RIME FOG", "หมอกน้ำค้างแข็ง"],
+      51: ["🌦", "LIGHT DRIZZLE", "ฝนตกปรอยๆ เล็กน้อย"],
+      53: ["🌦", "DRIZZLE", "ฝนตกปรอยๆ"],
+      55: ["🌧", "HEAVY DRIZZLE", "ฝนตกปรอยหนาแน่น"],
+      61: ["🌧", "LIGHT RAIN", "ฝนตกเล็กน้อย"],
+      63: ["🌧", "MODERATE RAIN", "ฝนตกปานกลาง"],
+      65: ["🌧", "HEAVY RAIN", "ฝนตกชุกหนาแน่น"],
+      80: ["🌦", "RAIN SHOWERS", "ฝนตกกระจายตัว"],
+      81: ["⛈", "STORM", "พายุฝนฟ้าคะนอง"],
+      82: ["⛈", "HEAVY STORM", "พายุฝนคะนองรุนแรง"],
+      95: ["⛈", "THUNDERSTORM", "พายุฝนรุนแรงและฟ้าผ่า"],
+      96: ["⛈", "HAIL STORM", "พายุฝนฟ้าคะนองและลูกเห็บ"]
+    };
+
+    const AQI_SEGS = [
+      { max: 50, col: "#10b981", lbl: "ดีเยี่ยม (Good)" },
+      { max: 100, col: "#f59e0b", lbl: "ปานกลาง (Moderate)" },
+      { max: 150, col: "#ff9f43", lbl: "มีผลต่อกลุ่มเสี่ยง (Sensitive)" },
+      { max: 200, col: "#ef4444", lbl: "เริ่มมีผลเสีย (Unhealthy)" },
+      { max: 300, col: "#b71c1c", lbl: "แย่อย่างยิ่ง (Very Unhealthy)" },
+      { max: 500, col: "#7f1d1d", lbl: "อันตรายสูงสุด (Hazardous)" }
+    ];
+
+    // Stations Dataset for Transit Fare Calculations
+    const stationsData = {
+      bts_sukhumvit: [
+        { name: "Mo Chit (หมอชิต)", index: 0 },
+        { name: "Saphan Khwai (สะพานควาย)", index: 1 },
+        { name: "Sena Nikhom (เสนานิคม)", index: 2 },
+        { name: "Ratchayothin (รัชโยธิน)", index: 3 },
+        { name: "Ha Yaek Lat Phrao (ห้าแยกลาดพร้าว)", index: 4 },
+        { name: "Ari (อารีย์)", index: 5 },
+        { name: "Sanam Pao (สนามเป้า)", index: 6 },
+        { name: "Victory Monument (อนุสาวรีย์ชัยฯ)", index: 7 },
+        { name: "Phaya Thai (พญาไท)", index: 8 },
+        { name: "Ratchathewi (ราชเทวี)", index: 9 },
+        { name: "Siam (สยาม - CEN)", index: 10 },
+        { name: "Chit Lom (ชิดลม)", index: 11 },
+        { name: "Phloen Chit (เพลินจิต)", index: 12 },
+        { name: "Nana (นานา)", index: 13 },
+        { name: "Asok (ออศก)", index: 14 },
+        { name: "Phrom Phong (พร้อมพงษ์)", index: 15 },
+        { name: "Thong Lo (ทองหล่อ)", index: 16 },
+        { name: "Ekkamai (เอกมัย)", index: 17 },
+        { name: "On Nut (อ่อนนุช)", index: 18 },
+        { name: "Bang Chak (บางจาก)", index: 19 },
+        { name: "Punnawithi (ปุณณวิถี)", index: 20 },
+        { name: "Udom Suk (อุดมสุข)", index: 21 },
+        { name: "Bang Na (บางนา)", index: 22 },
+        { name: "Bearing (แบริ่ง)", index: 23 }
+      ],
+      bts_silom: [
+        { name: "National Stadium (สนามกีฬาแห่งชาติ)", index: 0 },
+        { name: "Siam (สยาม - CEN)", index: 1 },
+        { name: "Ratchadamri (ราชดำริ)", index: 2 },
+        { name: "Sala Daeng (ศาลาแดง)", index: 3 },
+        { name: "Chong Nonsi (ช่องนนทรี)", index: 4 },
+        { name: "Saint Louis (เซนต์หลุยส์)", index: 5 },
+        { name: "Surasak (สุรศักดิ์)", index: 6 },
+        { name: "Saphan Taksin (สะพานตากสิน)", index: 7 },
+        { name: "Krung Thon Buri (กรุงธนบุรี)", index: 8 },
+        { name: "Wongwian Yai (วงเวียนใหญ่)", index: 9 },
+        { name: "Bang Wa (บางหว้า)", index: 10 }
+      ],
+      mrt_blue: [
+        { name: "Tao Poon (เตาปูน)", index: 0 },
+        { name: "Bang Sue (บางซื่อ)", index: 1 },
+        { name: "Kamphaeng Phet (กำแพงเพชร)", index: 2 },
+        { name: "Chatuchak Park (สวนจตุจักร)", index: 3 },
+        { name: "Phahon Yothin (พหลโยธิน)", index: 4 },
+        { name: "Lat Phrao (ลาดพร้าว)", index: 5 },
+        { name: "Ratchadaphisek (รัชดาภิเษก)", index: 6 },
+        { name: "Sutthisan (สุทธิสาร)", index: 7 },
+        { name: "Huai Khwang (ห้วยขวาง)", index: 8 },
+        { name: "Thailand Cultural Centre (ศูนย์วัฒนธรรมฯ)", index: 9 },
+        { name: "Phra Ram 9 (พระราม 9)", index: 10 },
+        { name: "Phetchaburi (เพชรบุรี)", index: 11 },
+        { name: "Sukhumvit (สุขุมวิท)", index: 12 },
+        { name: "Queen Sirikit CC (ศูนย์ประชุมฯ สิริกิติ์)", index: 13 },
+        { name: "Khlong Toei (คลองเตย)", index: 14 },
+        { name: "Lumphini (ลุมพินี)", index: 15 },
+        { name: "Si Lom (สีลม)", index: 16 },
+        { name: "Sam Yan (สามย่าน)", index: 17 },
+        { name: "Hua Lamphong (หัวลำโพง)", index: 18 },
+        { name: "Wat Mangkon (วัดมังกร)", index: 19 },
+        { name: "Sam Yot (สามยอด)", index: 20 },
+        { name: "Sanam Chai (สนามไชย)", index: 21 },
+        { name: "Itsaraphap (อิสรภาพ)", index: 22 },
+        { name: "Tha Phra (ท่าพระ)", index: 23 }
+      ]
+    };
+
+    // State Variables
+    let currentCoords = { lat: 13.7563, lon: 100.5018, name: "กรุงเทพมหานคร", country: "TH" };
+    let activeTab = 'weather';
+    let weatherSearchTimeout = null;
+    
+    // Map State Variables
+    let trafficMapObj = null;
+    let routeStartMarker = null;
+    let routeEndMarker = null;
+    let routeLineObj = null;
+    let clickMarkerFlag = false;
+
+    // Initialization on Page Load
+    window.addEventListener('DOMContentLoaded', () => {
+      // 1. Setup Time
+      setInterval(updateLocalClock, 1000);
+      updateLocalClock();
+
+      // 2. Setup Lucide Icons
+      safeCreateIcons();
+
+      // 3. Load initial weather
+      fetchWeatherData();
+
+      // 4. Setup Weather Autocomplete Event
+      document.getElementById('weatherSearchInput').addEventListener('input', handleWeatherSearchInput);
+
+      // 5. Load Commuter Notes & Checklist
+      loadTodoList();
+      loadMemoPad();
+
+      // 6. Populate Transit Stations
+      populateStations();
+
+      // 7. Initialize CCTV Animation
+      initCCTVSimulators();
+    });
+
+    // CLOCK MECHANICS
+    function updateLocalClock() {
+      const date = new Date();
+      document.getElementById('mainTime').textContent = date.toLocaleTimeString('th-TH', { hour12: false });
+      
+      const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+      document.getElementById('mainDate').textContent = date.toLocaleDateString('th-TH', options);
+
+      // Simulate occasional transit disruptions based on timestamp (for high realism)
+      updateTransitStatusSim(date);
+    }
+
+    // TAB CONTROLLER
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      
+      document.getElementById('tab-' + tabId).classList.add('active');
+      document.getElementById('nav-' + tabId).classList.add('active');
+      
+      activeTab = tabId;
+
+      // Update titles
+      const titles = {
+        weather: ["🌤️ สภาพอากาศและการเตรียมตัว", "BANGKOK METROPOLIS · TH"],
+        traffic: ["🚗 แผนที่และการนำทางเรียลไทม์", "TRAFFIC DENSITY MAP & ROAD CONTROLS"],
+        transit: ["🚇 ศูนย์ควบคุมบริการรถไฟฟ้า BTS / MRT", "BANGKOK TRANSIT METROPICS"],
+        helper: ["📝 สมุดบันทึก & เช็คลิสต์เตรียมพร้อม", "DAILY PACKING LISTS & OFFLINE NOTEBOOKS"]
+      };
+
+      document.getElementById('headerTitle').textContent = titles[tabId][0];
+      document.getElementById('headerSub').textContent = titles[tabId][1];
+
+      // Lazy load map when traffic tab is open
+      if (tabId === 'traffic') {
+        setTimeout(initTrafficMap, 200);
+      }
+    }
+
+    // =====================================
+    // TAB 1: WEATHER LOGIC
+    // =====================================
+
+    // Demo / Fallback data for Bangkok (used when API is unreachable)
+    function getDemoWeatherData() {
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const days = Array.from({length: 7}, (_, i) => {
+        const d = new Date(now); d.setDate(d.getDate() + i);
+        return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      });
+      const wd = {
+        current: {
+          temperature_2m: 34,
+          apparent_temperature: 40,
+          relative_humidity_2m: 72,
+          weather_code: 80,
+          wind_speed_10m: 14,
+          wind_direction_10m: 210,
+          surface_pressure: 1009,
+          visibility: 8000
+        },
+        hourly: {
+          temperature_2m: Array.from({length: 48}, (_, i) => 28 + Math.round(6 * Math.sin((i - 6) * Math.PI / 12))),
+          weather_code: Array.from({length: 48}, (_, i) => i % 8 === 5 ? 80 : (i % 3 === 0 ? 3 : 1))
+        },
+        daily: {
+          time: days,
+          weather_code: [80, 63, 80, 3, 1, 80, 61],
+          temperature_2m_max: [35, 33, 34, 36, 37, 33, 32],
+          temperature_2m_min: [27, 26, 27, 28, 28, 26, 25],
+          sunrise: days.map(d => d + 'T06:00'),
+          sunset:  days.map(d => d + 'T18:20'),
+          uv_index_max: [11, 9, 10, 8, 12, 9, 7],
+          precipitation_sum: [8, 15, 6, 0, 0, 12, 20],
+          precipitation_probability_max: [65, 80, 55, 10, 5, 75, 90]
+        }
+      };
+      const aq = { current: { us_aqi: 58, pm2_5: 18.4 } };
+      return { wd, aq };
+    }
+
+    async function fetchWeatherData() {
+      // Always show demo data immediately so UI is never blank
+      const { wd: demoWd, aq: demoAq } = getDemoWeatherData();
+      renderWeatherDetails(demoWd, demoAq, true);
+
+      // Then try to fetch real data in background
+      try {
+        const ctrl = new AbortController();
+        const timeout = setTimeout(() => ctrl.abort(), 10000);
+
+        const [wRes, aqRes] = await Promise.all([
+          fetch(`https://api.open-meteo.com/v1/forecast?latitude=${currentCoords.lat}&longitude=${currentCoords.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure,visibility&hourly=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max&timezone=Asia%2FBangkok`, { signal: ctrl.signal }),
+          fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${currentCoords.lat}&longitude=${currentCoords.lon}&current=us_aqi,pm2_5&timezone=Asia%2FBangkok`, { signal: ctrl.signal })
+        ]);
+        clearTimeout(timeout);
+
+        const wd = await wRes.json();
+        const aq = await aqRes.json();
+
+        if (wd.current && wd.daily) {
+          renderWeatherDetails(wd, aq, false);
+        }
+      } catch (err) {
+        console.warn('Weather API unavailable, keeping demo data:', err.message);
+        // Demo already shown — nothing to do
+      }
+    }
+
+    function renderWeatherDetails(w, a, isDemo = false) {
+      const cur = w.current;
+      const [icon, descEn, descTh] = WC[cur.weather_code] || ["🌡️", "UNKNOWN", "สภาพอากาศไม่ระบุ"];
+      
+      const sunriseTime = w.daily.sunrise[0].slice(11, 16);
+      const sunsetTime = w.daily.sunset[0].slice(11, 16);
+      
+      // Calculate Solar Progress
+      const now = new Date();
+      const currentMin = now.getHours() * 60 + now.getMinutes();
+      const riseMin = parseInt(sunriseTime.slice(0, 2)) * 60 + parseInt(sunriseTime.slice(3, 5));
+      const setMin = parseInt(sunsetTime.slice(0, 2)) * 60 + parseInt(sunsetTime.slice(3, 5));
+      const sunProgress = Math.min(100, Math.max(0, ((currentMin - riseMin) / (setMin - riseMin)) * 100));
+
+      // Hourly items
+      const nowHour = now.getHours();
+      let hourlyHtml = '';
+      for (let i = 0; i < 16; i++) {
+        const itemHour = (nowHour + i) % 24;
+        const temp = Math.round(w.hourly.temperature_2m[nowHour + i]);
+        const wCode = w.hourly.weather_code[nowHour + i];
+        const hIcon = (WC[wCode] || ["🌡️"])[0];
+        
+        hourlyHtml += `
+          <div class="hourly-item ${i === 0 ? 'now' : ''}">
+            <div class="hourly-time">${i === 0 ? 'ตอนนี้' : `${String(itemHour).padStart(2, '0')}:00`}</div>
+            <div class="hourly-icon">${hIcon}</div>
+            <div class="hourly-temp">${temp}°C</div>
+          </div>
+        `;
+      }
+
+      // 7-day Daily list
+      let dailyHtml = '';
+      for (let i = 0; i < 7; i++) {
+        const rawDate = new Date(w.daily.time[i]);
+        const dayName = rawDate.toLocaleDateString('th-TH', { weekday: 'short' });
+        const dateStr = rawDate.toLocaleDateString('th-TH', { day: 'numeric', month: 'short' });
+        const maxTemp = Math.round(w.daily.temperature_2m_max[i]);
+        const minTemp = Math.round(w.daily.temperature_2m_min[i]);
+        const rainProb = w.daily.precipitation_probability_max[i];
+        const dIcon = (WC[w.daily.weather_code[i]] || ["🌡️"])[0];
+
+        dailyHtml += `
+          <div class="daily-item">
+            <div class="daily-date">
+              <span style="font-weight: 500;">${dayName}</span><br>
+              <span style="font-size: 0.65rem; color: var(--muted);">${dateStr}</span>
+            </div>
+            <div class="daily-icon-desc">
+              <span class="daily-icon">${dIcon}</span>
+              ${rainProb > 20 ? `<span class="daily-rain-chance"><i data-lucide="droplet" style="width:10px;height:10px;"></i> ${rainProb}%</span>` : `<span style="font-size: 0.7rem; color: var(--muted2);">ไม่มีฝน</span>`}
+            </div>
+            <div class="daily-temps">
+              <span class="daily-temp-max">${maxTemp}°</span>
+              <span class="daily-temp-min">${minTemp}°</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // Air Quality values
+      const aqiVal = a.current.us_aqi;
+      const pm25Val = a.current.pm2_5;
+      let aqiColor = "var(--muted)";
+      let aqiStatusText = "ไม่มีข้อมูล";
+      if (aqiVal !== undefined) {
+        for (const seg of AQI_SEGS) {
+          if (aqiVal <= seg.max) {
+            aqiColor = seg.col;
+            aqiStatusText = seg.lbl;
+            break;
+          }
+        }
+      }
+
+      // Populate layout
+      const demoBanner = isDemo ? `<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:8px 14px;margin-bottom:16px;font-size:0.75rem;color:#fbbf24;display:flex;align-items:center;gap:8px;"><span>⚠️</span><span>ไม่สามารถเชื่อมต่ออินเทอร์เน็ตได้ — แสดงข้อมูลสาธิตกรุงเทพฯ แทน <button onclick="fetchWeatherData()" style="background:none;border:1px solid #fbbf24;color:#fbbf24;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:0.7rem;margin-left:6px;">ลองอีกครั้ง</button></span></div>` : '';
+      document.getElementById('weatherDashboardContent').innerHTML = demoBanner + `
+        <!-- Core Weather Card Grid -->
+        <div class="weather-grid">
+          <!-- Glass Card Main details -->
+          <div class="glass-card">
+            <div style="font-size: 0.75rem; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; font-family: 'JetBrains Mono', monospace; margin-bottom: 20px;">
+              สภาพอากาศปัจจุบัน (${currentCoords.name})
+            </div>
+            <div class="weather-main-info">
+              <div class="weather-big-icon">${icon}</div>
+              <div>
+                <div class="weather-main-temp">${Math.round(cur.temperature_2m)}<sup>°C</sup></div>
+                <div class="weather-main-desc">${descTh}</div>
+                <div class="weather-feels-like">รู้สึกเหมือนจริงประมาณ ${Math.round(cur.apparent_temperature)}°C</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Stats Indicators -->
+          <div class="weather-tiles">
+            <div class="weather-tile">
+              <div class="weather-tile-label">ความชื้นสัมพัทธ์</div>
+              <div class="weather-tile-value">${cur.relative_humidity_2m}%</div>
+            </div>
+            <div class="weather-tile">
+              <div class="weather-tile-label">ความเร็วลม</div>
+              <div class="weather-tile-value">${Math.round(cur.wind_speed_10m)} <span>กม./ชม.</span></div>
+            </div>
+            <div class="weather-tile">
+              <div class="weather-tile-label">ดัชนีรังสี UV สูงสุด</div>
+              <div class="weather-tile-value" style="color: ${w.daily.uv_index_max[0] >= 6 ? 'var(--yellow)' : 'var(--text)'};">
+                ${Math.round(w.daily.uv_index_max[0])}
+                <span style="font-size:0.65rem; font-weight:normal; color:var(--muted); display:block; margin-top:2px;">
+                  ${w.daily.uv_index_max[0] >= 6 ? 'ระดับสูง ควรทากันแดด' : 'ปลอดภัยระดับปกติ'}
+                </span>
+              </div>
+            </div>
+            <div class="weather-tile">
+              <div class="weather-tile-label">ความกดอากาศ</div>
+              <div class="weather-tile-value">${Math.round(cur.surface_pressure)} <span>hPa</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hourly forecast -->
+        <div class="weather-strip-title">
+          <i data-lucide="clock"></i> พยากรณ์รายชั่วโมง (16 ชม. ล่วงหน้า)
+        </div>
+        <div class="hourly-container">
+          ${hourlyHtml}
+        </div>
+
+        <!-- Weekly & Additional Details -->
+        <div class="daily-forecast-container">
+          <div class="daily-list">
+            <div style="font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; font-family: 'JetBrains Mono', monospace; margin-bottom: 8px; display:flex; align-items:center; gap:6px;">
+              <i data-lucide="calendar" style="width:14px; height:14px;"></i> พยากรณ์อากาศล่วงหน้า 7 วัน
+            </div>
+            ${dailyHtml}
+          </div>
+
+          <div class="weather-sub-cards">
+            <!-- Solar Track card -->
+            <div class="glass-card">
+              <div style="font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; font-family: 'JetBrains Mono', monospace; margin-bottom: 12px; display:flex; align-items:center; gap:6px;">
+                <i data-lucide="sun" style="width:14px; height:14px;"></i> วิถีแสงตะวัน (Solar Orbit)
+              </div>
+              
+              <div class="solar-track-box">
+                <div class="solar-track-header">
+                  <span>🌅 ${sunriseTime} น.</span>
+                  <span>${sunsetTime} น. 🌇</span>
+                </div>
+                <div class="solar-track-line">
+                  <div class="solar-track-fill" style="width: ${sunProgress}%"></div>
+                  <div class="solar-sun-dot" style="left: ${sunProgress}%">☀️</div>
+                </div>
+                <div class="solar-stats">
+                  <div class="solar-stat-item">
+                    โอกาสเกิดฝนสะสม
+                    <b>${w.daily.precipitation_probability_max[0]}%</b>
+                  </div>
+                  <div class="solar-stat-item">
+                    ปริมาณฝนรวมวันนี้
+                    <b>${w.daily.precipitation_sum[0]} มม.</b>
+                  </div>
+                  <div class="solar-stat-item">
+                    ดัชนีแสงแดด (UV)
+                    <b>${Math.round(w.daily.uv_index_max[0])}</b>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- AQI card -->
+            <div class="glass-card" style="border-color: ${aqiColor}33;">
+              <div style="font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 2px; font-family: 'JetBrains Mono', monospace; margin-bottom: 12px; display:flex; align-items:center; gap:6px;">
+                <i data-lucide="wind" style="width:14px; height:14px;"></i> ดัชนีคุณภาพอากาศ (US AQI)
+              </div>
+              
+              <div class="aqi-row">
+                <div>
+                  <div class="aqi-number" style="color: ${aqiColor};">${aqiVal ?? '--'}</div>
+                  <div class="aqi-label" style="color: ${aqiColor};">${aqiStatusText}</div>
+                </div>
+                <div style="text-align: right;">
+                  <span style="font-size: 0.65rem; color: var(--muted);">ปริมาณฝุ่น PM 2.5</span><br>
+                  <b style="font-size: 1.15rem; font-family: 'Outfit';">${pm25Val?.toFixed(1) ?? '--'} <span style="font-size: 0.7rem; font-weight: normal;">μg/m³</span></b>
+                </div>
+              </div>
+
+              <!-- Colorful AQI Scale -->
+              <div class="aqi-scale-bar">
+                ${AQI_SEGS.map((seg, idx) => {
+                  const isActive = aqiVal !== undefined && (idx === 0 ? aqiVal <= 50 : aqiVal > AQI_SEGS[idx - 1].max && aqiVal <= seg.max);
+                  return `<div class="aqi-scale-segment ${isActive ? 'active' : ''}" style="background-color: ${seg.col}; color: ${seg.col};"></div>`;
+                }).join('')}
+              </div>
+              <div style="display:flex; justify-content:space-between; font-size: 0.5rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 6px;">
+                <span>0</span><span>50</span><span>100</span><span>150</span><span>200</span><span>300+</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      safeCreateIcons();
+    }
+
+    // AUTOCOMPLETE LOCATION SEARCH FOR WEATHER
+    function handleWeatherSearchInput() {
+      const q = document.getElementById('weatherSearchInput').value.trim();
+      const list = document.getElementById('weatherSuggestions');
+      
+      if (weatherSearchTimeout) clearTimeout(weatherSearchTimeout);
+      
+      if (!q) {
+        list.style.display = 'none';
+        return;
+      }
+
+      weatherSearchTimeout = setTimeout(async () => {
+        try {
+          const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=th&format=json`);
+          const data = await res.json();
+          
+          if (data.results && data.results.length > 0) {
+            list.innerHTML = data.results.map(r => `
+              <div class="suggestion-item" onclick="selectWeatherLocation(${r.latitude}, ${r.longitude}, '${r.name}', '${r.country_code || 'TH'}')">
+                <i data-lucide="map-pin" style="width:12px; height:12px; display:inline-block; vertical-align:middle; margin-right:6px; color:var(--cyan);"></i>
+                <b>${r.name}</b> ${r.admin1 ? `, ${r.admin1}` : ''} (${r.country || 'ต่างประเทศ'})
+              </div>
+            `).join('');
+            list.style.display = 'block';
+            safeCreateIcons();
+          } else {
+            list.innerHTML = `<div class="suggestion-item" style="color:var(--muted); cursor:default;">ไม่พบสถานที่ดังกล่าว...</div>`;
+            list.style.display = 'block';
+          }
+        } catch(e) {
+          list.style.display = 'none';
+        }
+      }, 350);
+    }
+
+    function selectWeatherLocation(lat, lon, name, country) {
+      currentCoords = { lat, lon, name, country };
+      document.getElementById('weatherSearchInput').value = '';
+      document.getElementById('weatherSuggestions').style.display = 'none';
+      
+      // Update sub-text header
+      document.getElementById('headerSub').textContent = `${name.toUpperCase()} · ${country.toUpperCase()} (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`;
+
+      // Fetch new weather
+      fetchWeatherData();
+
+      // Recenter Map if initialized
+      if (trafficMapObj) {
+        trafficMapObj.setView([lat, lon], 12);
+        clearRoute();
+      }
+    }
+
+    // Close autocomplete suggestion box clicking outside
+    document.addEventListener('click', (e) => {
+      const parent = document.querySelector('.search-box-container');
+      if (parent && !parent.contains(e.target)) {
+        document.getElementById('weatherSuggestions').style.display = 'none';
+      }
+    });
+
+    // =====================================
+    // TAB 2: INTERACTIVE MAP & ROUTING LOGIC
+    // =====================================
+    function initTrafficMap() {
+      if (trafficMapObj !== null) return; // Prevent duplicate init
+
+      // Initialize Leaflet Map centering at current user coordinates (default Bangkok)
+      trafficMapObj = L.map('trafficMap', {
+        zoomControl: false
+      }).setView([currentCoords.lat, currentCoords.lon], 12);
+
+      // Custom Zoom controller placement
+      L.control.zoom({
+        position: 'bottomright'
+      }).addTo(trafficMapObj);
+
+      // Premium elegant Dark Mode Tiles overlay (CartoDB Dark All tiles)
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20
+      }).addTo(trafficMapObj);
+
+      // On Click Handler on the Map to assign Start/End Route nodes
+      trafficMapObj.on('click', handleMapClickRouting);
+    }
+
+    function handleMapClickRouting(e) {
+      const latlng = e.latlng;
+
+      if (!routeStartMarker) {
+        // Set Start Pin
+        routeStartMarker = L.marker(latlng, {
+          draggable: true
+        }).addTo(trafficMapObj);
+        
+        routeStartMarker.on('dragend', updateCalculatedRouteOnDrag);
+        
+        document.getElementById('routeStartName').innerHTML = `ละติจูด ${latlng.lat.toFixed(4)}, ลองจิจูด ${latlng.lng.toFixed(4)}`;
+        document.getElementById('routeStartName').classList.remove('empty');
+      } else if (!routeEndMarker) {
+        // Set End Pin
+        routeEndMarker = L.marker(latlng, {
+          draggable: true
+        }).addTo(trafficMapObj);
+
+        routeEndMarker.on('dragend', updateCalculatedRouteOnDrag);
+
+        document.getElementById('routeEndName').innerHTML = `ละติจูด ${latlng.lat.toFixed(4)}, ลองจิจูด ${latlng.lng.toFixed(4)}`;
+        document.getElementById('routeEndName').classList.remove('empty');
+
+        // Enable navigation calculation trigger
+        document.getElementById('btnCalcRoute').removeAttribute('disabled');
+      } else {
+        // Shift pins if already selected
+        clearRoute();
+        handleMapClickRouting(e);
+      }
+    }
+
+    function updateCalculatedRouteOnDrag() {
+      if (routeStartMarker && routeEndMarker) {
+        const start = routeStartMarker.getLatLng();
+        const end = routeEndMarker.getLatLng();
+        
+        document.getElementById('routeStartName').textContent = `ละติจูด ${start.lat.toFixed(4)}, ลองจิจูด ${start.lng.toFixed(4)}`;
+        document.getElementById('routeEndName').textContent = `ละติจูด ${end.lat.toFixed(4)}, ลองจิจูด ${end.lng.toFixed(4)}`;
+        
+        calculateCommuteRoute();
+      }
+    }
+
+    function clearRoute() {
+      if (routeStartMarker) {
+        trafficMapObj.removeLayer(routeStartMarker);
+        routeStartMarker = null;
+      }
+      if (routeEndMarker) {
+        trafficMapObj.removeLayer(routeEndMarker);
+        routeEndMarker = null;
+      }
+      if (routeLineObj) {
+        trafficMapObj.removeLayer(routeLineObj);
+        routeLineObj = null;
+      }
+
+      document.getElementById('routeStartName').innerHTML = `จุดเริ่มต้น (คลิกเลือกในแผนที่)`;
+      document.getElementById('routeStartName').classList.add('empty');
+      
+      document.getElementById('routeEndName').innerHTML = `จุดปลายทาง (คลิกเลือกในแผนที่)`;
+      document.getElementById('routeEndName').classList.add('empty');
+
+      document.getElementById('btnCalcRoute').setAttribute('disabled', 'true');
+      document.getElementById('commuteDetailsBox').style.display = 'none';
+    }
+
+    // Call Free OSRM Routing Machine to trace route paths
+    async function calculateCommuteRoute() {
+      if (!routeStartMarker || !routeEndMarker) return;
+      
+      const start = routeStartMarker.getLatLng();
+      const end = routeEndMarker.getLatLng();
+
+      // Show loader stats
+      document.getElementById('commuteDetailsBox').style.display = 'block';
+      document.getElementById('commuteDist').textContent = "กำลังคํานวณ...";
+      document.getElementById('commuteTime').textContent = "กำลังคํานวณ...";
+      document.getElementById('commuteRealTime').textContent = "กำลังคํานวณ...";
+
+      try {
+        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`);
+        const data = await res.json();
+
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const distKm = (route.distance / 1000).toFixed(1);
+          const timeMins = Math.round(route.duration / 60);
+
+          // Render Route Line in beautiful neon cyan style on Leaflet
+          if (routeLineObj) {
+            trafficMapObj.removeLayer(routeLineObj);
+          }
+
+          routeLineObj = L.geoJSON(route.geometry, {
+            style: {
+              color: '#00f2fe',
+              weight: 5,
+              opacity: 0.8,
+              lineCap: 'round',
+              shadowColor: '#4facfe',
+              shadowBlur: 10
+            }
+          }).addTo(trafficMapObj);
+
+          // Fit route boundaries to view
+          trafficMapObj.fitBounds(routeLineObj.getBounds(), { padding: [40, 40] });
+
+          // Traffic Delay Factor based on Current local time
+          const hour = new Date().getHours();
+          let multiplier = 1.0;
+          let congestionPill = document.getElementById('trafficCongestionPill');
+          
+          if ((hour >= 7 && hour < 10) || (hour >= 17 && hour < 20)) {
+            // Rush Hour: Traffic Congestion is highly probable
+            multiplier = 2.2;
+            congestionPill.className = "traffic-status-pill traffic-pill-red";
+            congestionPill.textContent = "จราจรติดขัดรุนแรง (Peak)";
+          } else if ((hour >= 10 && hour < 17)) {
+            // Mid-day normal travel
+            multiplier = 1.35;
+            congestionPill.className = "traffic-status-pill traffic-pill-yellow";
+            congestionPill.textContent = "ปานกลาง ชะลอตัว";
+          } else {
+            // Late Night / Early Morning
+            multiplier = 1.0;
+            congestionPill.className = "traffic-status-pill traffic-pill-green";
+            congestionPill.textContent = "เบาบาง เดินทางสะดวก";
+          }
+
+          const realTimeMins = Math.round(timeMins * multiplier);
+
+          document.getElementById('commuteDist').textContent = `${distKm} กม.`;
+          document.getElementById('commuteTime').textContent = `${timeMins} นาที`;
+          document.getElementById('commuteRealTime').textContent = `${realTimeMins} นาที`;
+        }
+      } catch (err) {
+        document.getElementById('commuteDist').textContent = "เกิดข้อผิดพลาด";
+        document.getElementById('commuteTime').textContent = "เกิดข้อผิดพลาด";
+        document.getElementById('commuteRealTime').textContent = "เกิดข้อผิดพลาด";
+      }
+    }
+
+    // =====================================
+    // TAB 2: CCTV FEED CANVAS SIMULATORS
+    // =====================================
+    function initCCTVSimulators() {
+      // Loop canvases and paint simulated traffic movements
+      drawCCTVFrame('cctv1', "Asoke Intersection BKK");
+      drawCCTVFrame('cctv2', "Ladprao-Ratchada Overpass");
+      
+      // Auto-refresh feeds every 1.5 seconds simulating cameras
+      setInterval(() => {
+        drawCCTVFrame('cctv1', "Asoke Intersection BKK");
+        drawCCTVFrame('cctv2', "Ladprao-Ratchada Overpass");
+      }, 1500);
+    }
+
+    function drawCCTVFrame(canvasId, name) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = 320;
+      const h = canvas.height = 180;
+
+      // Dark background
+      ctx.fillStyle = '#050a14';
+      ctx.fillRect(0,0,w,h);
+
+      // Draw perspective road lines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(w/2, 20); ctx.lineTo(10, h-10);
+      ctx.moveTo(w/2, 20); ctx.lineTo(w-10, h-10);
+      // Lane dividers
+      ctx.moveTo(w/2, 20); ctx.lineTo(w/2, h-10);
+      ctx.stroke();
+
+      // Render simulated glowing headlights moving down the highway
+      const timeMs = Date.now();
+      const qty = 8;
+      
+      for(let i=0; i<qty; i++) {
+        const offset = ((timeMs/3000 + i/qty) % 1.0);
+        const size = offset * 18;
+        const curY = 20 + offset * (h-30);
+        
+        // Left headlights (descending white)
+        const leftX = w/2 - offset * (w/2 - 20);
+        ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.3 + offset * 0.7) + ')';
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = size/2;
+        ctx.beginPath();
+        ctx.arc(leftX, curY, Math.max(2, size/3), 0, Math.PI*2);
+        ctx.fill();
+
+        // Right brake lights (descending red)
+        const rightX = w/2 + offset * (w/2 - 20);
+        ctx.fillStyle = 'rgba(239, 68, 68, ' + (0.3 + offset * 0.7) + ')';
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = size/2;
+        ctx.beginPath();
+        ctx.arc(rightX, curY, Math.max(2, size/3), 0, Math.PI*2);
+        ctx.fill();
+        
+        // Reset shadows
+        ctx.shadowBlur = 0;
+      }
+
+      // Live video scanline overlay
+      ctx.fillStyle = 'rgba(255,255,255, 0.02)';
+      for (let y = 0; y < h; y += 4) {
+        ctx.fillRect(0, y, w, 2);
+      }
+
+      // Render CCTV Metadata overlay
+      ctx.fillStyle = '#00f2fe';
+      ctx.font = '7px Courier New, monospace';
+      ctx.fillText(`REC: ${new Date().toLocaleDateString('th-TH')}  ${new Date().toLocaleTimeString('th-TH')}`, 10, h - 10);
+      ctx.fillText(`${name} · CAM ACTIVE`, 10, 15);
+    }
+
+    // =====================================
+    // TAB 3: TRANSIT SYSTEM & FARES
+    // =====================================
+    function populateStations() {
+      const sys = document.getElementById('transitSystemSelect').value;
+      const dataList = stationsData[sys];
+      
+      const selectOrig = document.getElementById('stationOriginSelect');
+      const selectDest = document.getElementById('stationDestSelect');
+      
+      selectOrig.innerHTML = '';
+      selectDest.innerHTML = '';
+
+      dataList.forEach(st => {
+        const optA = document.createElement('option');
+        optA.value = st.index;
+        optA.textContent = st.name;
+        selectOrig.appendChild(optA);
+
+        const optB = document.createElement('option');
+        optB.value = st.index;
+        optB.textContent = st.name;
+        selectDest.appendChild(optB);
+      });
+
+      // Default selection gap
+      if (selectDest.options.length > 3) {
+        selectDest.selectedIndex = 3;
+      }
+
+      calculateFare();
+    }
+
+    function calculateFare() {
+      const sys = document.getElementById('transitSystemSelect').value;
+      const oIdx = parseInt(document.getElementById('stationOriginSelect').value);
+      const dIdx = parseInt(document.getElementById('stationDestSelect').value);
+      
+      const dataList = stationsData[sys];
+      
+      const card = document.getElementById('fareResultCard');
+      const priceField = document.getElementById('farePriceVal');
+      const routeField = document.getElementById('fareRouteSummary');
+      const tipsBox = document.getElementById('interchangeTipsBox');
+      const tipsText = document.getElementById('interchangeTipsText');
+
+      if (oIdx === dIdx) {
+        priceField.innerHTML = `0 <span>บาท</span>`;
+        routeField.textContent = `สถานีต้นทางและปลายทางเป็นสถานีเดียวกัน`;
+        tipsBox.style.display = 'none';
+        card.style.display = 'flex';
+        return;
+      }
+
+      const diff = Math.abs(oIdx - dIdx);
+      let fare = 0;
+      
+      if (sys === 'bts_sukhumvit') {
+        // Actual Core Fare matrix (Mo Chit to On Nut: indices 0 to 18)
+        // Southern extension stations (Bang Chak to Bearing: indices 19 to 23)
+        const btsCorePrices = [0, 17, 25, 28, 32, 35, 40, 43, 47];
+        
+        const isOExt = oIdx >= 19;
+        const isDExt = dIdx >= 19;
+        
+        if (isOExt && isDExt) {
+          // Inside extension only
+          fare = 15;
+        } else if (!isOExt && !isDExt) {
+          // Inside core only
+          fare = btsCorePrices[Math.min(8, diff)];
+        } else {
+          // Cross-zone (core to extension)
+          const coreIdx = isOExt ? dIdx : oIdx;
+          const coreHops = Math.abs(18 - coreIdx); // 18 is On Nut (core boundary)
+          const coreFare = btsCorePrices[Math.min(8, coreHops)];
+          fare = coreFare + 15;
+          if (fare > 62) fare = 62; // Official Cap
+        }
+      } else if (sys === 'bts_silom') {
+        // Core stations: index 0 (National Stadium) to 9 (Wongwian Yai)
+        // Extension stations: index 10 (Bang Wa)
+        const btsCorePrices = [0, 17, 25, 28, 32, 35, 40, 43, 47];
+        
+        const isOExt = oIdx >= 10;
+        const isDExt = dIdx >= 10;
+        
+        if (isOExt && isDExt) {
+          fare = 15;
+        } else if (!isOExt && !isDExt) {
+          fare = btsCorePrices[Math.min(8, diff)];
+        } else {
+          const coreIdx = isOExt ? dIdx : oIdx;
+          const coreHops = Math.abs(9 - coreIdx); // 9 is Wongwian Yai (core boundary)
+          const coreFare = btsCorePrices[Math.min(8, coreHops)];
+          fare = coreFare + 15;
+          if (fare > 62) fare = 62;
+        }
+      } else if (sys === 'mrt_blue') {
+        // Actual MRT Blue Line integrated fare structure (0 to 12+ stations)
+        const mrtFares = [0, 17, 20, 22, 25, 27, 30, 32, 35, 37, 40, 42, 45];
+        fare = mrtFares[Math.min(12, diff)];
+      }
+
+      priceField.innerHTML = `${fare} <span>บาท</span>`;
+      
+      // Estimated transit minutes (average 2 minutes per station stop)
+      const durationMins = diff * 2;
+      routeField.textContent = `เดินทางผ่านทั้งหมด ${diff} สถานี | ระยะเวลาเฉลี่ย ${durationMins} นาที`;
+
+      // Smart Advice Interchange logic
+      const originName = dataList[oIdx].name;
+      const destName = dataList[dIdx].name;
+      
+      tipsBox.style.display = 'none';
+      
+      if (sys === 'bts_sukhumvit' && (originName.includes('Asok') || destName.includes('Asok') || originName.includes('Mo Chit') || destName.includes('Mo Chit'))) {
+        tipsBox.style.display = 'flex';
+        tipsText.textContent = `💡 แนะนำเชื่อมต่อ: คุณสามารถเปลี่ยนเส้นทางเชื่อมรถไฟฟ้าใต้ดิน MRT ได้ที่ จุดต่ออโศก <-> สุขุมวิท หรือ หมอชิต <-> สวนจตุจักร`;
+      } else if (sys === 'mrt_blue' && (originName.includes('Sukhumvit') || destName.includes('Sukhumvit') || originName.includes('Chatuchak') || destName.includes('Chatuchak'))) {
+        tipsBox.style.display = 'flex';
+        tipsText.textContent = `💡 แนะนำเชื่อมต่อ: สามารถเปลี่ยนเส้นทางเดินเท้าเชื่อมรถไฟฟ้าบีทีเอส BTS ได้ที่ สุขุมวิท <-> อโศก หรือ สวนจตุจักร <-> หมอชิต`;
+      }
+
+      card.style.display = 'flex';
+    }
+
+    function updateTransitStatusSim(date) {
+      // Simulate highly realistic fluctuations in transit line status boards depending on time
+      const hour = date.getHours();
+      const min = date.getMinutes();
+      
+      const btsSukStatus = document.getElementById('bts_sukhumvit_status');
+      const btsSilStatus = document.getElementById('bts_silom_status');
+      const mrtBlueStatus = document.getElementById('mrt_blue_status');
+      
+      // We simulate a minor signal issue on MRT Blue Line on rush hour mornings, or everything operates smoothly otherwise
+      if (hour === 8 && min >= 15 && min <= 45) {
+        mrtBlueStatus.className = "transit-status delay";
+        mrtBlueStatus.innerHTML = `<i data-lucide="alert-triangle" style="width: 16px; height: 16px;"></i> ชะลอตัว 10 นาที`;
+        document.getElementById('transitAnnouncement').innerHTML = `⚠️ <b>ประกาศผู้โดยสาร:</b> เนื่องจากมีระบบสัญญานขัดข้องชั่วคราวระหว่างสถานีสุทธิสารและรัชดาภิเษก ส่งผลให้ MRT สายสีน้ำเงินจะเกิดความล่าช้าสะสม ขออภัยในความไม่สะดวก`;
+      } else {
+        mrtBlueStatus.className = "transit-status normal";
+        mrtBlueStatus.innerHTML = `<i data-lucide="check-circle" style="width: 16px; height: 16px;"></i> ปกติ`;
+        document.getElementById('transitAnnouncement').innerHTML = `🚇 <b>ประกาศศูนย์ข่าวสาร:</b> รถไฟฟ้ารายวันทุกเส้นทาง ทั้งบีทีเอสและเอ็มอาร์ที วิ่งให้บริการความถี่สม่ำเสมอเป็นปกติ สะดวกต่อการเดินทาง`;
+      }
+      
+      safeCreateIcons();
+    }
+
+    // =====================================
+    // TAB 4: COMMUTE CHECKLIST & NOTES Pad
+    // =====================================
+    const defaultTodos = [
+      { id: 1, text: "เช็กพกร่ม / เสื้อกันฝนพับได้ ☔", checked: false },
+      { id: 2, text: "พกคีย์การ์ด / บัตรรถไฟฟ้า MRT-BTS 💳", checked: true },
+      { id: 3, text: "เช็กแบตเตอรี่โทรศัพท์ & แบตสำรอง (Powerbank) 🔋", checked: false },
+      { id: 4, text: "พกหูฟังสำหรับการเดินทาง 🎧", checked: false }
+    ];
+
+    function loadTodoList() {
+      let list = localStorage.getItem('commuter_todos');
+      if (!list) {
+        list = JSON.stringify(defaultTodos);
+        localStorage.setItem('commuter_todos', list);
+      }
+
+      const arr = JSON.parse(list);
+      const listContainer = document.getElementById('todoList');
+      listContainer.innerHTML = '';
+
+      arr.forEach(todo => {
+        const div = document.createElement('div');
+        div.className = `todo-item ${todo.checked ? 'checked' : ''}`;
+        div.innerHTML = `
+          <div class="todo-item-left" onclick="toggleTodo(${todo.id})">
+            <div class="todo-checkbox">
+              <i data-lucide="check"></i>
+            </div>
+            <span class="todo-text">${escapeHtml(todo.text)}</span>
+          </div>
+          <button class="todo-del-btn" onclick="deleteTodo(${todo.id})">
+            <i data-lucide="trash-2" style="width:16px; height:16px;"></i>
+          </button>
+        `;
+        listContainer.appendChild(div);
+      });
+
+      safeCreateIcons();
+    }
+
+    function toggleTodo(id) {
+      const arr = JSON.parse(localStorage.getItem('commuter_todos'));
+      const todo = arr.find(t => t.id === id);
+      if (todo) {
+        todo.checked = !todo.checked;
+        localStorage.setItem('commuter_todos', JSON.stringify(arr));
+        loadTodoList();
+      }
+    }
+
+    function deleteTodo(id) {
+      let arr = JSON.parse(localStorage.getItem('commuter_todos'));
+      arr = arr.filter(t => t.id !== id);
+      localStorage.setItem('commuter_todos', JSON.stringify(arr));
+      loadTodoList();
+    }
+
+    function addTodo() {
+      const input = document.getElementById('todoInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const arr = JSON.parse(localStorage.getItem('commuter_todos')) || [];
+      const newTodo = {
+        id: Date.now(),
+        text: text,
+        checked: false
+      };
+
+      arr.push(newTodo);
+      localStorage.setItem('commuter_todos', JSON.stringify(arr));
+      input.value = '';
+      loadTodoList();
+    }
+
+    function handleTodoKeypress(e) {
+      if (e.key === 'Enter') {
+        addTodo();
+      }
+    }
+
+    // MEMO PAD AUTOSAVE LOGIC
+    function loadMemoPad() {
+      const val = localStorage.getItem('commuter_memo') || '';
+      document.getElementById('commuteMemoPad').value = val;
+    }
+
+    let saveMemoTimeout = null;
+    function saveMemo() {
+      const val = document.getElementById('commuteMemoPad').value;
+      const statusSpan = document.querySelector('#memoSaveStatus span');
+      statusSpan.textContent = "กำลังพิมพ์บันทึกข้อมูล...";
+
+      if (saveMemoTimeout) clearTimeout(saveMemoTimeout);
+
+      saveMemoTimeout = setTimeout(() => {
+        localStorage.setItem('commuter_memo', val);
+        statusSpan.textContent = "บันทึกข้อมูลแบบออฟไลน์เรียบร้อย ✅";
+      }, 500);
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
