@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commuter Hub - Smart Daily Assistant</title>
+  
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@200;300;400;500;600&family=Outfit:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet Map CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  
+  <!-- Lucide Icons via CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/DailyOS/manifest.json">
+  <meta name="theme-color" content="#030712">
+  <link rel="apple-touch-icon" href="/DailyOS/assets/icon-192.svg">
+  <script type="module" crossorigin src="/DailyOS/assets/index-cnDbzGbC.js"></script>
+  <link rel="stylesheet" crossorigin href="/DailyOS/assets/index-DFJEoe1z.css">
+</head>
+<body>
+
+  <!-- Dynamic Animated Weather Background Overlay -->
+  <div class="weather-bg-overlay" id="weatherBgOverlay"></div>
+
+  <!-- Drifting Aurora Background Blobs -->
+  <div class="aurora">
+    <div class="aurora-blob"></div>
+    <div class="aurora-blob"></div>
+    <div class="aurora-blob"></div>
+  </div>
+
+  <!-- MAIN APP CONTAINER -->
+  <div class="app-container">
+    
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="sidebar">
+      <div>
+        <div class="brand">
+          <div class="brand-logo">
+            <i data-lucide="navigation"></i>
+          </div>
+          <div class="brand-title">
+            <h1>Commuter Hub</h1>
+            <p>BKK Daily Guide</p>
+          </div>
+        </div>
+
+        <nav class="nav-links">
+          <div class="nav-item active" data-tab="weather" id="nav-weather">
+            <i data-lucide="cloud-sun-rain"></i>
+            <span>อากาศ</span>
+          </div>
+         
+          <div class="nav-item" data-tab="transit" id="nav-transit">
+            <i data-lucide="train"></i>
+            <span>BTS/MRT</span>
+          </div>
+          <div class="nav-item" data-tab="helper" id="nav-helper">
+            <i data-lucide="layout-grid"></i>
+            <span>วิดเจ็ต</span>
+          </div>
+          <div class="nav-item" data-tab="emergency" id="nav-emergency">
+            <i data-lucide="shield-alert"></i>
+            <span>ความปลอดภัย</span>
+          </div>
+        </nav>
+      </div>
+
+      <!-- Quick Actions / Mode Toggle at sidebar bottom -->
+      <div class="sidebar-bottom">
+        <button class="theme-toggle-btn" id="themeToggle" aria-label="Toggle Dark/Light Mode">
+          <i data-lucide="sun" id="theme-icon-light"></i>
+          <i data-lucide="moon" id="theme-icon-dark" style="display: none;"></i>
+        </button>
+        <div class="sidebar-footer">
+          <span>COMMUTER HUB V2.5</span>
+          <span>ONLINE SMART ASSISTANT</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN DISPLAY CONTENT -->
+    <main class="main-content">
+      
+      <!-- TOPBAR HEADER -->
+      <div class="topbar">
+        <div>
+          <h2 id="headerTitle">สภาพอากาศและการเตรียมตัว</h2>
+          <p id="headerSub">BANGKOK METROPOLIS · TH</p>
+        </div>
+        <div class="clock-widget">
+          <div class="time-display" id="mainTime">--:--:--</div>
+          <div class="date-display" id="mainDate">--/--/----</div>
+        </div>
+      </div>
+
+      <!-- APP CONTENT PAGES -->
+      <div class="tab-content active" id="tab-weather"></div>
+      <div class="tab-content" id="tab-transit"></div>
+      <div class="tab-content" id="tab-helper"></div>
+      <div class="tab-content" id="tab-emergency"></div>
+
+    </main>
+  </div>
+
+  <!-- Notification Center Toast -->
+  <div class="notification-toast-container" id="toastContainer"></div>
+
+  <!-- Leaflet Map JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Main Script Entry -->
+</body>
+</html>
+
+
