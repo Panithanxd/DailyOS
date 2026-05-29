@@ -1,10 +1,11 @@
-const CACHE_NAME = 'commuter-hub-v2.5';
+const CACHE_NAME = 'commuter-hub-v2.6';
+const scopeAsset = (path) => new URL(path, self.registration.scope).toString();
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/assets/icon-192.svg',
-  '/assets/icon-512.svg',
+  scopeAsset('./'),
+  scopeAsset('index.html'),
+  scopeAsset('manifest.json'),
+  scopeAsset('assets/icon-192.svg'),
+  scopeAsset('assets/icon-512.svg'),
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://unpkg.com/lucide@latest'
@@ -40,6 +41,10 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
 
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    return;
+  }
+
   // Skip caching for external non-GET APIs (like OpenMeteo or Overpass)
   // These will be handled by the services local-cache layer in api.js
   if (e.request.method !== 'GET' || url.pathname.includes('/api/') || url.hostname.includes('open-meteo') || url.hostname.includes('overpass-api')) {
@@ -72,11 +77,11 @@ self.addEventListener('push', (e) => {
   
   const options = {
     body: data.body,
-    icon: '/assets/icon-192.svg',
-    badge: '/assets/icon-192.svg',
+    icon: scopeAsset('assets/icon-192.svg'),
+    badge: scopeAsset('assets/icon-192.svg'),
     vibrate: [100, 50, 100],
     data: {
-      url: data.url || '/'
+      url: data.url || self.registration.scope
     }
   };
 
