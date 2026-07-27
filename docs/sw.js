@@ -1,4 +1,4 @@
-const CACHE_NAME = 'commuter-hub-v2.6';
+const CACHE_NAME = 'commuter-hub-v2.7';
 const scopeAsset = (path) => new URL(path, self.registration.scope).toString();
 const STATIC_ASSETS = [
   scopeAsset('./'),
@@ -48,6 +48,23 @@ self.addEventListener('fetch', (e) => {
   // Skip caching for external non-GET APIs (like OpenMeteo or Overpass)
   // These will be handled by the services local-cache layer in api.js
   if (e.request.method !== 'GET' || url.pathname.includes('/api/') || url.hostname.includes('open-meteo') || url.hostname.includes('overpass-api')) {
+    return;
+  }
+
+  // หน้า HTML ต้อง network-first เสมอ
+  // ไม่งั้นมือถือจะค้างอยู่กับ index.html เก่าที่ชี้ไปยัง bundle ที่ถูกลบไปแล้ว
+  if (e.request.mode === 'navigate' || e.request.destination === 'document') {
+    e.respondWith(
+      fetch(e.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(e.request).then((cached) => cached || caches.match(scopeAsset('index.html'))))
+    );
     return;
   }
 
